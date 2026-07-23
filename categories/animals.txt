@@ -1,1 +1,1 @@
-whale, panda, tiger, raccoon, rabbit, cat, fish, flamingo, frog, rhinoceros, shark, turtle, sheep, hedgehog, alligator,
+whale, panda, tiger, raccoon, rabbit, cat, fish, flamingo, frog, rhinoceros, shark, dragon, sheep, hedgehog, bear,
