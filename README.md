@@ -35,5 +35,5 @@ pip install -r requirements.txt
 - [ ] train + validate CNN embeddings 
 - [ ] backend server 
 - [ ] websocket layer 
-- [ ] frontend mockup
+- [x] frontend mockup
 - MORE TBD
