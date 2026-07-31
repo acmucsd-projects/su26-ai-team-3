@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+@theme {
+  --font-hand: "Architects Daughter", cursive;
+
+  --color-paper: #f4ead9;
+  --color-paper-dark: #ece0cb;
+  --color-panel: #f7efe0;
+  --color-ink: #4a3f30;
+  --color-ink-soft: #8a7c66;
+  --color-border: #cdbb9c;
+  --color-accent-orange: #e8823c;
+  --color-accent-green: #3f8f5f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-hand);
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
