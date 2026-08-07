@@ -1,1 +1,1 @@
-backpack, bed, book, chair, clock, computer, cup, door, key, knife, laptop, shoe, spoon, table, toothbrush
+backpack, bed, book, chair, clock, computer, cup, door, key, knife, shoe, spoon, table, television, toothbrush
