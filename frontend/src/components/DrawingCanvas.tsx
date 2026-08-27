@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
 export interface DrawingCanvasHandle {
   clear: () => void;
+  getPNG: () => Promise<Blob | null>;
 }
 
 interface DrawingCanvasProps {
@@ -19,9 +20,25 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
 
     useImperativeHandle(ref, () => ({
       clear: () => {
+      const canvas = canvasRef.current;
+      const ctx = canvas?.getContext("2d");
+      if (canvas && ctx) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+      },
+
+      getPNG: () => {
         const canvas = canvasRef.current;
-        const ctx = canvas?.getContext("2d");
-        if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        if (!canvas) {
+          return Promise.resolve(null);
+        }
+
+        return new Promise((resolve) => {
+          canvas.toBlob((blob) => {
+            resolve(blob);
+          }, "image/png");
+        });
       },
     }));
 
