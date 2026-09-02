@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";  // added useEffect in order to run timer for intermittent image submission
 import Header from "./components/Header";
 import PlayersPanel from "./components/PlayersPanel";
 import AIGuesserPanel from "./components/AIGuesserPanel";
@@ -7,8 +7,8 @@ import Toolbar from "./components/Toolbar";
 import {
   players,
   guesserRankings,
-  currentBestGuess,
-  currentConfidence,
+  currentBestGuess, // no more references to these because I wanted to see
+  currentConfidence, // dynamic updates of confidence in frontend
   wordToDraw,
   currentRound,
   totalRounds,
@@ -19,8 +19,39 @@ function App() {
   const [tool, setTool] = useState<"pencil" | "eraser">("pencil");
   const [color, setColor] = useState("#1a1a1a");
   const [brushSize, setBrushSize] = useState(6);
+  const [prediction, setPrediction] = useState("");     // store prediction category
+  const [score, setScore] = useState<number | null>(null); // store prediction score
+
   const canvasRef = useRef<DrawingCanvasHandle>(null);
 
+  const submitDrawing = async () => { // for sending drawing to backend
+  const png = await canvasRef.current?.getPNG(); // retrieves png of canvas
+
+  if (!png) return;
+
+  const formData = new FormData(); // prepare data for sending to backend
+  formData.append("file", png, "drawing.png");
+
+  try {   // send picture to bakend
+    const response = await fetch("http://localhost:8000/predict", {
+      method: "POST",
+      body: formData,
+    });
+
+    const result = await response.json(); // receive result from backend
+
+    setPrediction(result.prediction); // update prediction 
+    setScore(result.score); // update score
+  } catch (error) {
+    console.error("Error connecting to backend:", error);
+  }
+};
+useEffect(() => { // ever 3 seconds, call submitDrawing to send current canvas to backend
+  const interval = setInterval(() => {
+    submitDrawing();
+  }, 3000);
+  return () => clearInterval(interval); // cleanup/stop timer
+}, []);
   return (
     <div className="flex h-screen flex-col overflow-hidden">
       <Header
@@ -49,10 +80,10 @@ function App() {
           />
         </main>
 
-        <AIGuesserPanel
-          confidence={currentConfidence}
-          bestGuess={currentBestGuess}
-          rankings={guesserRankings}
+        <AIGuesserPanel // update confidence and bestGuess with results from backend
+        confidence={score ?? 0}
+        bestGuess={prediction || "Waiting..."}
+        rankings={guesserRankings}
         />
       </div>
     </div>
@@ -60,3 +91,4 @@ function App() {
 }
 
 export default App;
+{/* npm run dev */}
