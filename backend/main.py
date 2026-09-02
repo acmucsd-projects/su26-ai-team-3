@@ -1,7 +1,7 @@
-from fastapi import FastAPI, UploadFile, File           # backend framework, interactions with frontend
+from fastapi import FastAPI, HTTPException              # backend framework, interactions with frontend
 from fastapi.middleware.cors import CORSMiddleware      # allow front/backend interactions across different ports
-from PIL import Image                                   # image processing
-import io                                               # convert image to PIL-processable format
+from pydantic import BaseModel                          # validate the shape of incoming drawing data
+import numpy as np                                      # convert pixel lists to np arrays 
 import random                                           # just for testing
 
 app = FastAPI()                                         # create backend
@@ -14,18 +14,24 @@ app.add_middleware(                                     # allow backend to conne
     allow_headers=["*"],
 )
 
+class Drawing(BaseModel):                               
+    pixels: list[list[float]]                           
+    width: int = 128
+    height: int = 128
+
 @app.get("/")                                           # just to show backend is running
 def home():
     return {"message": "Drawing game backend is running!"}
 
 
 @app.post("/predict")                                   # prediction component
-async def predict(file: UploadFile = File(...)):        # take in image from frontend as input
-    image_data = await file.read()                      # read image
+async def predict(drawing: Drawing):                    # take in raw pixel data from frontend as input
+    image = np.array(drawing.pixels, dtype=np.float32)  # shape (height, width), values 0.0-1.0, ready for inference
 
-    image = Image.open(io.BytesIO(image_data))          # convert to bytes for PIL processing
+    if image.shape != (drawing.height, drawing.width):  
+        raise HTTPException(status_code=422, detail=f"Expected pixel matrix of shape ({drawing.height}, {drawing.width}), got {image.shape}")
 
-    image = image.convert("L")                          # grayscale conversion
+    image = image.reshape(1, drawing.height, drawing.width, 1)  # shape (1, height, width, 1), ready for inference
 
     score = random.randint(0, 100)                      # Temporary test values
           
