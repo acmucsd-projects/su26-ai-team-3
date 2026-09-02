@@ -7,8 +7,6 @@ import Toolbar from "./components/Toolbar";
 import {
   players,
   guesserRankings,
-  currentBestGuess, // no more references to these because I wanted to see
-  currentConfidence, // dynamic updates of confidence in frontend
   wordToDraw,
   currentRound,
   totalRounds,
@@ -25,17 +23,15 @@ function App() {
   const canvasRef = useRef<DrawingCanvasHandle>(null);
 
   const submitDrawing = async () => { // for sending drawing to backend
-  const png = await canvasRef.current?.getPNG(); // retrieves png of canvas
+  const pixels = canvasRef.current?.getPixelValues({ normalize: true }); // 128x128 grayscale matrix, 0.0 = background, 1.0 = stroke
 
-  if (!png) return;
+  if (!pixels) return;
 
-  const formData = new FormData(); // prepare data for sending to backend
-  formData.append("file", png, "drawing.png");
-
-  try {   // send picture to bakend
+  try {   // send raw pixel data to backend as JSON
     const response = await fetch("http://localhost:8000/predict", {
       method: "POST",
-      body: formData,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pixels, width: 128, height: 128 }),
     });
 
     const result = await response.json(); // receive result from backend

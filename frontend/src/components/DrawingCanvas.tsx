@@ -1,8 +1,27 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 
+export interface PixelExtractionOptions {
+  /** Target width for downsampling (default: 128 for CNN, 28 for k-NN) */
+  targetWidth?: number;
+  /** Target height for downsampling (default: 128 for CNN, 28 for k-NN) */
+  targetHeight?: number;
+  /** If true, returns a 1D flattened array (length = width * height). Default: false (2D array [height][width]). */
+  flatten?: boolean;
+  /** If true, returns floats between 0.0 and 1.0 instead of integers between 0 and 255. Default: false. */
+  normalize?: boolean;
+}
+
 export interface DrawingCanvasHandle {
   clear: () => void;
-  getPNG: () => Promise<Blob | null>;
+  /** Returns the full-resolution ImageData object (RGBA) from the canvas. */
+  getRawImageData: () => ImageData | null;
+  /** 
+   * Downsamples the drawing to target dimensions (default 128x128 to match CNN models) and converts it 
+   * to grayscale pixel values (0 = background, 255 / 1.0 = stroke intensity).
+   */
+  getPixelValues: (options?: PixelExtractionOptions) => number[][] | number[] | null;
+  /** Returns the canvas contents as a Base64 PNG Data URL string. */
+  getImageDataUrl: () => string | null;
 }
 
 interface DrawingCanvasProps {
@@ -20,25 +39,70 @@ const DrawingCanvas = forwardRef<DrawingCanvasHandle, DrawingCanvasProps>(
 
     useImperativeHandle(ref, () => ({
       clear: () => {
-      const canvas = canvasRef.current;
-      const ctx = canvas?.getContext("2d");
-      if (canvas && ctx) {
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-      }
-      },
-
-      getPNG: () => {
         const canvas = canvasRef.current;
+        const ctx = canvas?.getContext("2d");
+        if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+      },
+      getRawImageData: () => {
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext("2d");
+        if (!canvas || !ctx || canvas.width === 0 || canvas.height === 0) return null;
+        return ctx.getImageData(0, 0, canvas.width, canvas.height);
+      },
+      getPixelValues: (options?: PixelExtractionOptions) => {
+        const canvas = canvasRef.current;
+        if (!canvas || canvas.width === 0 || canvas.height === 0) return null;
 
-        if (!canvas) {
-          return Promise.resolve(null);
+        const targetWidth = options?.targetWidth ?? 128;
+        const targetHeight = options?.targetHeight ?? 128;
+        const flatten = options?.flatten ?? false;
+        const normalize = options?.normalize ?? false;
+
+        // Offscreen canvas for downsampling
+        const offscreen = document.createElement("canvas");
+        offscreen.width = targetWidth;
+        offscreen.height = targetHeight;
+        const offCtx = offscreen.getContext("2d");
+        if (!offCtx) return null;
+
+        // Draw main canvas onto offscreen canvas
+        offCtx.drawImage(canvas, 0, 0, targetWidth, targetHeight);
+        const { data } = offCtx.getImageData(0, 0, targetWidth, targetHeight);
+
+        const matrix: number[][] = [];
+        const flatArray: number[] = [];
+
+        for (let y = 0; y < targetHeight; y++) {
+          const row: number[] = [];
+          for (let x = 0; x < targetWidth; x++) {
+            const idx = (y * targetWidth + x) * 4;
+            const r = data[idx];
+            const g = data[idx + 1];
+            const b = data[idx + 2];
+            const a = data[idx + 3] / 255;
+
+            // Compute stroke intensity: 0 = empty canvas, 255 = dark stroke
+            const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+            const strokeIntensity = (255 - luminance) * a;
+            const val = normalize ? strokeIntensity / 255 : Math.round(strokeIntensity);
+
+            if (flatten) {
+              flatArray.push(val);
+            } else {
+              row.push(val);
+            }
+          }
+          if (!flatten) {
+            matrix.push(row);
+          }
         }
 
-        return new Promise((resolve) => {
-          canvas.toBlob((blob) => {
-            resolve(blob);
-          }, "image/png");
-        });
+        return flatten ? flatArray : matrix;
+      },
+      getImageDataUrl: () => {
+        const canvas = canvasRef.current;
+        if (!canvas || canvas.width === 0 || canvas.height === 0) return null;
+        return canvas.toDataURL("image/png");
       },
     }));
 
