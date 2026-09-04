@@ -1,0 +1,14 @@
+{
+  "game_id": "string",
+  "host": "string",
+  "status": "waiting | in_progress | finished",
+  "round": "int",
+  "max_rounds": "int",
+  "prompt": "string | null",
+  "players": {
+    "player_name": {
+      "score": "number | null",
+      "submitted": "bool"
+    }
+  }
+}
