@@ -10,8 +10,9 @@ import {
   wordToDraw,
   currentRound,
   totalRounds,
-  timeRemaining,
 } from "./mockData";
+
+const MAX_TIME = 60 ; // Temp value
 
 function App() {
   const [tool, setTool] = useState<"pencil" | "eraser">("pencil");
@@ -19,8 +20,19 @@ function App() {
   const [brushSize, setBrushSize] = useState(6);
   const [prediction, setPrediction] = useState("");     // store prediction category
   const [score, setScore] = useState<number | null>(null); // store prediction score
+  const [timeRemaining, setTimeRemaining] = useState(MAX_TIME); // round countdown, placeholder only
 
   const canvasRef = useRef<DrawingCanvasHandle>(null);
+
+  // @ Dylan 
+  // TODO: endRound - round timer hit 0: 
+  // call /games/{GAME_ID}/predict,
+  // wait for its response
+  //  call /games/{GAME_ID}/end-round
+
+  // TODO: countdown tick - decrement timeRemaining once per second
+
+  // TODO: round timer hit 0 -> call endRound
 
   const submitDrawing = async () => { // for sending drawing to backend
   const pixels = canvasRef.current?.getPixelValues({ normalize: true }); // 128x128 grayscale matrix, 0.0 = background, 1.0 = stroke
@@ -55,7 +67,7 @@ useEffect(() => { // ever 3 seconds, call submitDrawing to send current canvas t
         totalRounds={totalRounds}
         word={wordToDraw}
         timeRemaining={timeRemaining}
-        maxTime={60}
+        maxTime={MAX_TIME}
       />
 
       <div className="flex flex-1 overflow-hidden">
