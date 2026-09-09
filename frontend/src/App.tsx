@@ -40,7 +40,7 @@ function App() {
   if (!pixels) return;
 
   try {   // send raw pixel data to backend as JSON
-    const response = await fetch("http://localhost:8000/predict", {
+    const response = await fetch("http://localhost:8000/games/${gameId}/predict", { // updated url to include gameID, matching w/ backend expectation
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ pixels, width: 128, height: 128 }),
