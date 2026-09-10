@@ -8,6 +8,7 @@
   "players": {
     "player_name": {
       "score": "number | null",
+      "total_score": "number",
       "submitted": "bool"
     }
   }

@@ -175,6 +175,7 @@ async def end_round(game_id: str, max_rounds: int = 5):
     winner = ""
     
     for player in game["players"]:
+        game["players"][player]["totalscore"] = game["players"][player]["totalscore"]+game["players"][player]["score"]
         if game["players"][player]["score"] > topscore:
             topscore = game["players"][player]["score"]
             winner = player
