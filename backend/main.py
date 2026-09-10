@@ -79,7 +79,8 @@ async def join_game(game_id: str, body: JoinGame):
         )
     # Set player score to 0 and submitted to false
     game["players"][player_name] = {
-        "score": 0, # in schema, score is None but here it's 0, so host ends up with score = None. Need to fix??
+        "score": None,
+        "totalscore": 0,
         "submitted": False
     }
     
@@ -175,17 +176,24 @@ async def end_round(game_id: str, max_rounds: int = 5):
     winner = ""
     
     for player in game["players"]:
+        score = game["players"][player]["score"]
+        if score is None:
+            continue
+
         game["players"][player]["totalscore"] = game["players"][player]["totalscore"]+game["players"][player]["score"]
         if game["players"][player]["score"] > topscore:
             topscore = game["players"][player]["score"]
             winner = player
+        game["players"][player]["score"] = None
+        game["players"][player]["submitted"] = False
+        
 
     if game["round"] >= game["max_rounds"]:
         game["status"] = "finished" # end game if max rounds reached
     # Post New Score to Players
 
     return {"message": f"Round ended for game {game_id}", "scores": {
-        player: game["players"][player]["score"]
+        player: game["players"][player]["totalscore"]
         for player in game["players"]
     }, "winner": winner,
     "topscore": topscore,
