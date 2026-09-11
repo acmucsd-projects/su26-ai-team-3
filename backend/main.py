@@ -6,6 +6,8 @@ import random                                           # just for testing
 import uuid                                             # generate game ids
 from scoring import calculate_score                     # scoring functions for calculating player scores
 
+CENTROID_DIR = Path(__file__).resolve().parent.parent / "data" / "centroids"
+
 app = FastAPI()                                         # create backend
 
 app.add_middleware(                                     # allow backend to connect to frontend on port 5173
@@ -114,7 +116,7 @@ async def predict(game_id: str, drawings: list[Drawing]):        # take in raw p
         embed = np.array([]) 
         # TODO: HF Inference @ Jeremy (this should come from a seperate service module)
 
-        score = calculate_score(embed, game["prompt"])  
+        score = calculate_score(embed, game["prompt"], CENTROID_DIR)  
         # TODO: implement scoring function @ Nghi see backend/scoring.py for details
 
         game["players"][drawing.player_name]["score"] = score
