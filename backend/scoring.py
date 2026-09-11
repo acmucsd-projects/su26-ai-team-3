@@ -3,16 +3,35 @@ import pathlib
 
 # @ Nghi
 
-def load_centroids(category):
-    # TODO: 
-    # Navigate and load correct centroid files
-    # Return correct centroids as np array
+# Navigate and load correct centroid files
+# Return correct centroids as np array
+def load_centroids(category, centroid_dir):
 
-    return np.array([])
+    centroid_path = centroid_dir / f"{category}.npy"
 
-def calculate_score(embedding, category):
-    # TODO
-    # Take cosine similarity between embedding and centroids
-    # Return the avg cosine similarity as the score
+    if not centroid_path.exists():
+        raise FileNotFoundError(f"No centroid file found for category '{category}'")
 
-    return 0
+    centroids = np.load(centroid_path)
+    centroids = np.atleast_2d(centroids)
+
+    return centroids
+
+
+# Take cosine similarity between embedding and centroids
+# Return the avg cosine similarity as the score
+def calculate_score(embedding, category): 
+
+    embedding = np.asarray(embedding, dtype=np.float32).reshape(-1)
+
+    if embedding.size == 0:
+        raise ValueError("Embedding is empty")
+
+    centroids = load_centroids(category, centroid_dir)
+
+    similarities = []
+    for centroid in centroids:
+        similarity = np.dot(embedding, centroid) / (np.linalg.norm(embedding) * np.linalg.norm(centroid) + 1e-8)
+        similarities.append(similarity)
+
+    return float(np.mean(similarities))
