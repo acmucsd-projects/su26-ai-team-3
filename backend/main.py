@@ -4,7 +4,22 @@ from pydantic import BaseModel                          # validate the shape of 
 import numpy as np                                      # convert pixel lists to np arrays
 import random                                           # just for testing
 import uuid                                             # generate game ids
+from pathlib import Path
 from scoring import calculate_score                     # scoring functions for calculating player scores
+
+# Categories directory containing word prompts for the game
+CATEGORIES_DIR = Path(__file__).resolve().parent.parent / "data" / "categories"
+
+def load_prompts() -> list[str]:
+    prompts: list[str] = []
+    if CATEGORIES_DIR.exists():
+        for category_file in CATEGORIES_DIR.glob("*.txt"):
+            text = category_file.read_text(encoding="utf-8")
+            words = [w.strip() for w in text.replace("\n", ",").split(",") if w.strip()]
+            prompts.extend(words)
+    return prompts
+
+PROMPTS = load_prompts()
 
 app = FastAPI()                                         # create backend
 
@@ -105,9 +120,10 @@ async def start_game(game_id: str):
         raise HTTPException(status_code=404, detail="Game not found") 
 
     def pick_random_prompt():
-    # TODO : @Dylan 
-    # Pick random prompt
-        return ""
+        # @Dylan: Pick random prompt from data/categories/*.txt
+        if not PROMPTS:
+            raise HTTPException(status_code=500, detail="No prompt categories found")
+        return random.choice(PROMPTS)
 
     game = games[game_id]
 

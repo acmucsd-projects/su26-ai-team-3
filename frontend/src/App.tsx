@@ -24,18 +24,70 @@ function App() {
 
   const canvasRef = useRef<DrawingCanvasHandle>(null);
 
+  const [gameId] = useState<string>("demo");
+  const [playerName] = useState<string>("sketchking");
+
   // @ Dylan 
-  // TODO: endRound - round timer hit 0: 
+  // endRound - round timer hit 0: 
   // call /games/{GAME_ID}/predict,
   // wait for its response
-  //  call /games/{GAME_ID}/end-round
+  // call /games/{GAME_ID}/end-round
+  const endRound = async () => {
+    const pixels = canvasRef.current?.getPixelValues({ normalize: true });
+    if (!pixels) return;
 
-  // TODO: countdown tick - decrement timeRemaining once per second
+    try {
+      // 1. Call /games/{GAME_ID}/predict and wait for its response
+      const predictResponse = await fetch(`http://localhost:8000/games/${gameId}/predict`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify([
+          {
+            player_name: playerName,
+            pixels,
+            width: 128,
+            height: 128,
+          },
+        ]),
+      });
+      const predictResult = await predictResponse.json();
+      console.log("Prediction response:", predictResult);
 
-  // TODO: round timer hit 0 -> call endRound
+      // 2. Call /games/{GAME_ID}/end-round
+      const endResponse = await fetch(`http://localhost:8000/games/${gameId}/end-round`, {
+        method: "POST",
+      });
+      const endResult = await endResponse.json();
+      console.log("End round response:", endResult);
+    } catch (error) {
+      console.error("Error during endRound:", error);
+    }
+  };
+
+  const hasEndedRef = useRef(false);
+
+  // Countdown tick - decrement timeRemaining once per second
+  useEffect(() => {
+    if (timeRemaining <= 0) return;
+
+    const timer = setInterval(() => {
+      setTimeRemaining((prev) => Math.max(0, prev - 1));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [timeRemaining]);
+
+  // Round timer hit 0 -> call endRound
+  useEffect(() => {
+    if (timeRemaining === 0 && !hasEndedRef.current) {
+      hasEndedRef.current = true;
+      endRound();
+    }
+  }, [timeRemaining]);
 
   const submitDrawing = async () => { // for sending drawing to backend
-  const pixels = canvasRef.current?.getPixelValues({ normalize: true }); // 128x128 grayscale matrix, 0.0 = background, 1.0 = stroke
+    if (hasEndedRef.current) return;
+    const pixels = canvasRef.current?.getPixelValues({ normalize: true }); // 128x128 grayscale matrix, 0.0 = background, 1.0 = stroke
 
   if (!pixels) return;
 
