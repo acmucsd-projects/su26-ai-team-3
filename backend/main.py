@@ -4,9 +4,22 @@ from pydantic import BaseModel                          # validate the shape of 
 import numpy as np                                      # convert pixel lists to np arrays
 import random                                           # just for testing
 import uuid                                             # generate game ids
+from pathlib import Path
 from scoring import calculate_score                     # scoring functions for calculating player scores
 
-CENTROID_DIR = Path(__file__).resolve().parent.parent / "data" / "centroids"
+# Categories directory containing word prompts for the game
+CATEGORIES_DIR = Path(__file__).resolve().parent.parent / "data" / "categories"
+
+def load_prompts() -> list[str]:
+    prompts: list[str] = []
+    if CATEGORIES_DIR.exists():
+        for category_file in CATEGORIES_DIR.glob("*.txt"):
+            text = category_file.read_text(encoding="utf-8")
+            words = [w.strip() for w in text.replace("\n", ",").split(",") if w.strip()]
+            prompts.extend(words)
+    return prompts
+
+PROMPTS = load_prompts()
 
 app = FastAPI()                                         # create backend
 
@@ -47,7 +60,7 @@ async def create_game(body: CreateGame):
         "game_id": game_id,
         "host": body.host_name,
         "status": "waiting",
-        "round": 1,
+        "round": 0, # changed to 0 since start_game increments round count by 1
         "max_rounds": 5,
         "prompt": None,
         "players": {
@@ -60,14 +73,34 @@ async def create_game(body: CreateGame):
 
 @app.post("/games/{game_id}/join")                      # join a game
 async def join_game(game_id: str, body: JoinGame):
+    # TODO: @ Tammy
     if game_id not in games:
         raise HTTPException(status_code=404, detail="Game not found")
 
     game = games[game_id]
+    player_name = body.player_name # update player name from JoinGame obj
 
-    # TODO: @ Tammy
+    if game["status"] != "waiting": # terminate if not waiting for players
+        raise HTTPException(
+            status_code=400, # 400 = bad request
+            detail="Game concluded/in progress, join failed"
+        )
+
     # Check if player in game
+    if player_name in game["players"]: # terminate if player name already in player list
+        raise HTTPException(
+            status_code=400,
+            detail="Player already joined"
+        )
     # Set player score to 0 and submitted to false
+    game["players"][player_name] = {
+        "score": None,
+        "totalscore": 0,
+        "submitted": False
+    }
+    
+    
+    
     # return the game joined 
 
     return game
@@ -77,25 +110,42 @@ async def join_game(game_id: str, body: JoinGame):
 async def get_game(game_id: str):
     # TODO: @ Tammy
     # return actual game state
-
-    return None
+    if game_id not in games:
+        raise HTTPException(status_code=404, detail="Game not found")
+    return games[game_id]
 
 @app.post("/games/{game_id}/start")                     # start the game/round
 async def start_game(game_id: str):
+    if game_id not in games:
+        raise HTTPException(status_code=404, detail="Game not found") 
 
     def pick_random_prompt():
-    # TODO : @Dylan 
-    # Pick random prompt
-        return ""
+        # @Dylan: Pick random prompt from data/categories/*.txt
+        if not PROMPTS:
+            raise HTTPException(status_code=500, detail="No prompt categories found")
+        return random.choice(PROMPTS)
 
+    game = games[game_id]
 
     # TODO: @ Tammy
     # Check if max rounds reached
+    if game["round"] >= game["max_rounds"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Max rounds reached"
+        )
     # Set game round to +1
-    # Reset players submitted to False
-    # Set prompt to random prompt
+    game["round"] = game["round"]+1 # double check this bit since game starts @ 1
 
-    return None
+    # Reset players submitted to False
+    for player in game["players"]:
+        game["players"][player]["submitted"] = False
+    # Set prompt to random prompt
+    game["prompt"] = pick_random_prompt()
+
+    game["status"] = "in_progress" # is this line necessary???
+
+    return game
 
 
 @app.post("/games/{game_id}/predict")                    # send drawing pixels -> model -> calculate score
@@ -116,7 +166,7 @@ async def predict(game_id: str, drawings: list[Drawing]):        # take in raw p
         embed = np.array([]) 
         # TODO: HF Inference @ Jeremy (this should come from a seperate service module)
 
-        score = calculate_score(embed, game["prompt"], CENTROID_DIR)  
+        score = calculate_score(embed, game["prompt"])  
         # TODO: implement scoring function @ Nghi see backend/scoring.py for details
 
         game["players"][drawing.player_name]["score"] = score
@@ -129,13 +179,40 @@ async def predict(game_id: str, drawings: list[Drawing]):        # take in raw p
 
 @app.post("/games/{game_id}/end-round")                 # end round and determine winner
 async def end_round(game_id: str, max_rounds: int = 5):
+    # is max_rounds parameter redundant?
+
     if game_id not in games:
         raise HTTPException(status_code=404, detail="Game not found")
 
     # TODO: @ Tammy
     # Check if max round reached
+    game = games[game_id]
+
+    topscore = -1
+    winner = ""
+    
+    for player in game["players"]:
+        score = game["players"][player]["score"]
+        if score is None:
+            continue
+
+        game["players"][player]["totalscore"] = game["players"][player]["totalscore"]+game["players"][player]["score"]
+        if game["players"][player]["score"] > topscore:
+            topscore = game["players"][player]["score"]
+            winner = player
+        game["players"][player]["score"] = None
+        game["players"][player]["submitted"] = False
+        
+
+    if game["round"] >= game["max_rounds"]:
+        game["status"] = "finished" # end game if max rounds reached
     # Post New Score to Players
 
-    return {"message": f"Round ended for game {game_id}"}
+    return {"message": f"Round ended for game {game_id}", "scores": {
+        player: game["players"][player]["totalscore"]
+        for player in game["players"]
+    }, "winner": winner,
+    "topscore": topscore,
+    }
 
 # python -m uvicorn main:app to run backend
