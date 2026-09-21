@@ -10,16 +10,18 @@ from scoring import calculate_score                     # scoring functions for 
 # Categories directory containing word prompts for the game
 CATEGORIES_DIR = Path(__file__).resolve().parent.parent / "data" / "categories"
 
-def load_prompts() -> list[str]:
-    prompts: list[str] = []
+def load_prompts_by_category() -> dict[str, list[str]]:
+    categories: dict[str, list[str]] = {}
     if CATEGORIES_DIR.exists():
         for category_file in CATEGORIES_DIR.glob("*.txt"):
+            category_name = category_file.stem
             text = category_file.read_text(encoding="utf-8")
             words = [w.strip() for w in text.replace("\n", ",").split(",") if w.strip()]
-            prompts.extend(words)
-    return prompts
+            if words:
+                categories[category_name] = words
+    return categories
 
-PROMPTS = load_prompts()
+PROMPTS_BY_CATEGORY = load_prompts_by_category()
 
 app = FastAPI()                                         # create backend
 
@@ -62,6 +64,7 @@ async def create_game(body: CreateGame):
         "status": "waiting",
         "round": 0, # changed to 0 since start_game increments round count by 1
         "max_rounds": 5,
+        "category": None,
         "prompt": None,
         "players": {
             body.host_name: {"score": None, "submitted": False}
@@ -119,11 +122,13 @@ async def start_game(game_id: str):
     if game_id not in games:
         raise HTTPException(status_code=404, detail="Game not found") 
 
-    def pick_random_prompt():
-        # @Dylan: Pick random prompt from data/categories/*.txt
-        if not PROMPTS:
+    def pick_random_prompt() -> tuple[str, str]:
+        # @Dylan: Pick random category from data/categories/*.txt, then pick random prompt from that category
+        if not PROMPTS_BY_CATEGORY:
             raise HTTPException(status_code=500, detail="No prompt categories found")
-        return random.choice(PROMPTS)
+        category = random.choice(list(PROMPTS_BY_CATEGORY.keys()))
+        prompt = random.choice(PROMPTS_BY_CATEGORY[category])
+        return category, prompt
 
     game = games[game_id]
 
@@ -140,8 +145,10 @@ async def start_game(game_id: str):
     # Reset players submitted to False
     for player in game["players"]:
         game["players"][player]["submitted"] = False
-    # Set prompt to random prompt
-    game["prompt"] = pick_random_prompt()
+    # Set category and prompt to random prompt
+    category, prompt = pick_random_prompt()
+    game["category"] = category
+    game["prompt"] = prompt
 
     game["status"] = "in_progress" # is this line necessary???
 
@@ -166,7 +173,7 @@ async def predict(game_id: str, drawings: list[Drawing]):        # take in raw p
         embed = np.array([]) 
         # TODO: HF Inference @ Jeremy (this should come from a seperate service module)
 
-        score = calculate_score(embed, game["prompt"])  
+        score = calculate_score(embed, game["category"])  
         # TODO: implement scoring function @ Nghi see backend/scoring.py for details
 
         game["players"][drawing.player_name]["score"] = score

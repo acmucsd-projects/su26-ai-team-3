@@ -4,6 +4,7 @@
   "status": "waiting | in_progress | finished",
   "round": "int",
   "max_rounds": "int",
+  "category": "string | null",
   "prompt": "string | null",
   "players": {
     "player_name": {
