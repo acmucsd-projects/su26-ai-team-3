@@ -136,7 +136,7 @@ async def start_game(game_id: str):
             detail="Max rounds reached"
         )
     # Set game round to +1
-    game["max_similarity"] = random.uniform(0.90, 1.00) # randomly cap similarity for downstream normalization
+    game["max_similarity"] = random.uniform(0.95, 1.00) # randomly cap similarity for downstream normalization
     game["round"] = game["round"]+1 # double check this bit since game starts @ 1
 
     # Reset players submitted to False
