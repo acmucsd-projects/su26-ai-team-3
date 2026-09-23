@@ -164,7 +164,13 @@ async def predict(game_id: str, drawings: list[Drawing]):        # take in raw p
 
     game = games[game_id]
 
+    if game["status"] != "in_progress":
+        raise HTTPException(status_code=400, detail="Game is not in progress")
+
     for drawing in drawings:
+        if drawing.player_name not in game["players"]:
+            raise HTTPException(status_code=404, detail=f"Player '{drawing.player_name}' not in game")
+
         image = np.array(drawing.pixels, dtype=np.float32)  # shape (height, width), values 0.0-1.0, ready for inference
 
         if image.shape != (drawing.height, drawing.width):
@@ -172,12 +178,16 @@ async def predict(game_id: str, drawings: list[Drawing]):        # take in raw p
 
         image = image.reshape(1, drawing.height, drawing.width, 1)  # shape (1, height, width, 1), ready for inference
 
-        embed = np.array([]) 
+        embed = np.array([])
         # TODO: HF Inference @ Jeremy (this should come from a seperate service module)
 
-        score = calculate_score(embed, game["category"])  
-        # TODO: implement scoring function @ Nghi see backend/scoring.py for details
-        normalized_score = min(score / game["max_similarity"], 1.0) # normalize score based on random max
+        scores = calculate_score(embed, game["category"])  # list of (word, similarity) across the category's centroids
+        scores_by_label = dict(scores)
+        if game["prompt"] not in scores_by_label:
+            raise HTTPException(status_code=500, detail=f"No centroid found for prompt '{game['prompt']}'")
+
+        similarity = scores_by_label[game["prompt"]]
+        normalized_score = min(similarity / game["max_similarity"], 1.0) # normalize score based on random max
         game["players"][drawing.player_name]["score"] = normalized_score  # update with normalized similarity score
 
     # send back prediction to frontend
@@ -221,7 +231,7 @@ async def end_round(game_id: str, max_rounds: int = 5):
 
     for playername in rankscore:        # add 0.5 pts per similarity > 0.5
         player = playername["player"]
-        score = player["score"]
+        score = playername["score"]
         if score > 0.5:
             game["players"][player]["total_score"] = game["players"][player]["total_score"] + 0.5
                     
