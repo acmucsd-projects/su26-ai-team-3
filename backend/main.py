@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException              # backend framework, int
 from fastapi.middleware.cors import CORSMiddleware      # allow front/backend interactions across different ports
 from pydantic import BaseModel                          # validate the shape of incoming drawing data
 import numpy as np                                      # convert pixel lists to np arrays
-import random                                           # just for testing
+import random                                           # for testing and capping cosine calculation
 import uuid                                             # generate game ids
 from pathlib import Path
 from scoring import calculate_score                     # scoring functions for calculating player scores
@@ -63,8 +63,9 @@ async def create_game(body: CreateGame):
         "round": 0, # changed to 0 since start_game increments round count by 1
         "max_rounds": 5,
         "prompt": None,
+        "max_similarity": None, # scoring cap
         "players": {
-            body.host_name: {"score": None, "submitted": False}
+            body.host_name: {"score": None, "total_score": 0 ,"submitted": False} # updated to match schema.json
         }
     }
 
@@ -95,7 +96,7 @@ async def join_game(game_id: str, body: JoinGame):
     # Set player score to 0 and submitted to false
     game["players"][player_name] = {
         "score": None,
-        "totalscore": 0,
+        "total_score": 0,
         "submitted": False
     }
     
@@ -135,6 +136,7 @@ async def start_game(game_id: str):
             detail="Max rounds reached"
         )
     # Set game round to +1
+    game["max_similarity"] = random.uniform(0.95, 1.00) # randomly cap similarity for downstream normalization
     game["round"] = game["round"]+1 # double check this bit since game starts @ 1
 
     # Reset players submitted to False
@@ -168,8 +170,8 @@ async def predict(game_id: str, drawings: list[Drawing]):        # take in raw p
 
         score = calculate_score(embed, game["prompt"])  
         # TODO: implement scoring function @ Nghi see backend/scoring.py for details
-
-        game["players"][drawing.player_name]["score"] = score
+        normalized_score = min(score / game["max_similarity"], 1.0) # normalize score based on random max
+        game["players"][drawing.player_name]["score"] = normalized_score  # update with normalized similarity score
 
     # send back prediction to frontend
     return {
@@ -188,31 +190,44 @@ async def end_round(game_id: str, max_rounds: int = 5):
     # Check if max round reached
     game = games[game_id]
 
-    topscore = -1
-    winner = ""
-    
+    rankscore = []
     for player in game["players"]:
         score = game["players"][player]["score"]
         if score is None:
             continue
 
-        game["players"][player]["totalscore"] = game["players"][player]["totalscore"]+game["players"][player]["score"]
-        if game["players"][player]["score"] > topscore:
-            topscore = game["players"][player]["score"]
-            winner = player
+        rankscore.append({ "player": player, "score": score})   # for ranking point assignment
+
+        #game["players"][player]["totalscore"] = game["players"][player]["totalscore"]+game["players"][player]["score"]
+        #if game["players"][player]["score"] > topscore:
+        #    topscore = game["players"][player]["score"]
+        #    winner = player
         game["players"][player]["score"] = None
         game["players"][player]["submitted"] = False
-        
+    
+    rankscore.sort( key=lambda player: player["score"], reverse=True )  # sort from highest to lowest normalized similarity
+    count = 3
+    for playername in rankscore[:3]: # 1st place = 3pts, 2nd = 2pts, 3rd = 1pt
+        player = playername["player"]
+        game["players"][player]["total_score"] = game["players"][player]["total_score"] + count
+        count = count-1
+
+    for playername in rankscore:        # add 0.5 pts per similarity > 0.5
+        player = playername["player"]
+        score = player["score"]
+        if score > 0.5:
+            game["players"][player]["total_score"] = game["players"][player]["total_score"] + 0.5
+                    
 
     if game["round"] >= game["max_rounds"]:
         game["status"] = "finished" # end game if max rounds reached
     # Post New Score to Players
 
     return {"message": f"Round ended for game {game_id}", "scores": {
-        player: game["players"][player]["totalscore"]
+        player: game["players"][player]["total_score"]
         for player in game["players"]
-    }, "winner": winner,
-    "topscore": topscore,
+    }, "winner": rankscore[0]["player"] if rankscore else None, # avoid error if no submission received
+    "topscore": rankscore[0]["score"] if rankscore else None,
     }
 
 # python -m uvicorn main:app to run backend
