@@ -17,12 +17,8 @@ def load_centroids(category):
         )
 
     with np.load(centroid_path) as data:
-        labels = data.files
-
-        centroids = np.array([
-            np.asarray(data[label]).reshape(-1)
-            for label in labels
-        ])
+        labels = [str(label) for label in data["categories"]]
+        centroids = np.asarray(data["centroid"], dtype=np.float32)
 
     return labels, centroids
 
