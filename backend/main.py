@@ -179,7 +179,7 @@ async def predict(game_id: str, drawings: list[Drawing]):        # take in raw p
 
         image = image.reshape(1, drawing.height, drawing.width, 1)  # shape (1, height, width, 1), ready for inference
 
-        embed = get_embeddings(drawings)
+        embed = get_embeddings(game["category"], image)
 
         scores = calculate_score(embed, game["category"])  # list of (word, similarity) across the category's centroids
         scores_by_label = dict(scores)
