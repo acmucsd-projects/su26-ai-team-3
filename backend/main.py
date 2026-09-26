@@ -6,7 +6,10 @@ import random                                           # for testing and cappin
 import uuid                                             # generate game ids
 from pathlib import Path
 from scoring import calculate_score                     # scoring functions for calculating player scores
-from hf_inference import get_embeddings
+
+from dotenv import load_dotenv
+load_dotenv()
+from hf_inference import get_embedding
 
 # Categories directory containing word prompts for the game
 CATEGORIES_DIR = Path(__file__).resolve().parent.parent / "data" / "categories"
@@ -179,7 +182,7 @@ async def predict(game_id: str, drawings: list[Drawing]):        # take in raw p
 
         image = image.reshape(1, drawing.height, drawing.width, 1)  # shape (1, height, width, 1), ready for inference
 
-        embed = get_embeddings(game["category"], image)
+        embed = get_embedding(game["category"], image)
 
         scores = calculate_score(embed, game["category"])  # list of (word, similarity) across the category's centroids
         scores_by_label = dict(scores)

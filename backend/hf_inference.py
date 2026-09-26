@@ -14,15 +14,17 @@ def get_embedding(category: str, image) -> list[float]:
     """
     Calls the HF Inference Endpoint for a single drawing.
 
-    category: broad category_set, e.g. "animals", "sports", "food", "objects"
+    category: broad category, e.g. "animals", "sports", "food", "objects"
     image: numpy array or nested list, shape (1, height, width, 1)
 
     Returns: embedding vector as a list of floats.
     """
     payload = {
+    "inputs": {
         "category": category,
         "image": image.tolist() if hasattr(image, "tolist") else image,
     }
+}
 
     response = requests.post(HF_ENDPOINT_URL, headers=HEADERS, json=payload, timeout=30)
     response.raise_for_status()
