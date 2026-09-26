@@ -6,7 +6,7 @@ import random                                           # for testing and cappin
 import uuid                                             # generate game ids
 from pathlib import Path
 from scoring import calculate_score                     # scoring functions for calculating player scores
-from hf_inference import get_embeddings
+from hf_inference import get_embedding
 
 # Categories directory containing word prompts for the game
 CATEGORIES_DIR = Path(__file__).resolve().parent.parent / "data" / "categories"
