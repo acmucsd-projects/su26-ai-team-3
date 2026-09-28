@@ -3,3 +3,5 @@ uvicorn
 python-multipart
 pillow
 numpy
+python-dotenv
+requests
