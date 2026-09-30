@@ -1,154 +1,137 @@
-import { useRef, useState, useEffect } from "react";  // added useEffect in order to run timer for intermittent image submission
-import Header from "./components/Header";
-import PlayersPanel from "./components/PlayersPanel";
-import AIGuesserPanel from "./components/AIGuesserPanel";
-import DrawingCanvas, { type DrawingCanvasHandle } from "./components/DrawingCanvas";
-import Toolbar from "./components/Toolbar";
-import {
-  players,
-  guesserRankings,
-  wordToDraw,
-  currentRound,
-  totalRounds,
-} from "./mockData";
-
-const MAX_TIME = 60 ; // Temp value
+import { useState, useEffect } from "react";
+import LandingScreen from "./components/LandingScreen";
+import LobbyScreen from "./components/LobbyScreen";
+import GameScreen from "./components/GameScreen";
+import RoundResultsScreen from "./components/RoundResultsScreen";
+import ResultsScreen from "./components/ResultsScreen";
+import { createGame, joinGame, getGame, startGame, ApiError, type BackendGame } from "./api";
+import { toErrorMessage } from "./adapters";
 
 function App() {
-  const [tool, setTool] = useState<"pencil" | "eraser">("pencil");
-  const [color, setColor] = useState("#1a1a1a");
-  const [brushSize, setBrushSize] = useState(6);
-  const [prediction, setPrediction] = useState("");     // store prediction category
-  const [score, setScore] = useState<number | null>(null); // store prediction score
-  const [timeRemaining, setTimeRemaining] = useState(MAX_TIME); // round countdown, placeholder only
+  const [gameId, setGameId] = useState<string | null>(null);
+  const [playerName, setPlayerName] = useState<string | null>(null);
+  const [isHost, setIsHost] = useState(false);
+  const [game, setGame] = useState<BackendGame | null>(null);
+  const [joinError, setJoinError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
 
-  const canvasRef = useRef<DrawingCanvasHandle>(null);
+  // Poll game state while a game is joined, regardless of phase
+  useEffect(() => {
+    if (!gameId) return;
+    let cancelled = false;
 
-  const [gameId] = useState<string>("demo");
-  const [playerName] = useState<string>("sketchking");
+    const poll = async () => {
+      try {
+        const g = await getGame(gameId);
+        if (!cancelled) setGame(g);
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) {
+          if (!cancelled) {
+            setGameId(null);
+            setPlayerName(null);
+            setGame(null);
+            setIsHost(false);
+            setJoinError("Game session lost — it may no longer exist. Please create or join again.");
+          }
+        } else {
+          console.error("Error polling game state:", error);
+        }
+      }
+    };
 
-  // @ Dylan 
-  // endRound - round timer hit 0: 
-  // call /games/{GAME_ID}/predict,
-  // wait for its response
-  // call /games/{GAME_ID}/end-round
-  const endRound = async () => {
-    const pixels = canvasRef.current?.getPixelValues({ normalize: true });
-    if (!pixels) return;
+    poll();
+    const interval = setInterval(poll, 1500);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [gameId]);
 
+  const handleCreate = async (hostName: string) => {
+    setJoinError(null);
+    setIsSubmitting(true);
     try {
-      // 1. Call /games/{GAME_ID}/predict and wait for its response
-      const predictResponse = await fetch(`http://localhost:8000/games/${gameId}/predict`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify([
-          {
-            player_name: playerName,
-            pixels,
-            width: 128,
-            height: 128,
-          },
-        ]),
-      });
-      const predictResult = await predictResponse.json();
-      console.log("Prediction response:", predictResult);
-
-      // 2. Call /games/{GAME_ID}/end-round
-      const endResponse = await fetch(`http://localhost:8000/games/${gameId}/end-round`, {
-        method: "POST",
-      });
-      const endResult = await endResponse.json();
-      console.log("End round response:", endResult);
+      const g = await createGame(hostName);
+      setGame(g);
+      setGameId(g.game_id);
+      setPlayerName(hostName);
+      setIsHost(true);
     } catch (error) {
-      console.error("Error during endRound:", error);
+      setJoinError(toErrorMessage(error));
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const hasEndedRef = useRef(false);
-
-  // Countdown tick - decrement timeRemaining once per second
-  useEffect(() => {
-    if (timeRemaining <= 0) return;
-
-    const timer = setInterval(() => {
-      setTimeRemaining((prev) => Math.max(0, prev - 1));
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [timeRemaining]);
-
-  // Round timer hit 0 -> call endRound
-  useEffect(() => {
-    if (timeRemaining === 0 && !hasEndedRef.current) {
-      hasEndedRef.current = true;
-      endRound();
+  const handleJoin = async (code: string, name: string) => {
+    setJoinError(null);
+    setIsSubmitting(true);
+    try {
+      const g = await joinGame(code, name);
+      setGame(g);
+      setGameId(code);
+      setPlayerName(name);
+      setIsHost(false);
+    } catch (error) {
+      setJoinError(toErrorMessage(error));
+    } finally {
+      setIsSubmitting(false);
     }
-  }, [timeRemaining]);
+  };
 
-  const submitDrawing = async () => { // for sending drawing to backend
-    if (hasEndedRef.current) return;
-    const pixels = canvasRef.current?.getPixelValues({ normalize: true }); // 128x128 grayscale matrix, 0.0 = background, 1.0 = stroke
+  const handleStart = async () => {
+    if (!gameId) return;
+    setIsStarting(true);
+    try {
+      setGame(await startGame(gameId));
+    } catch (error) {
+      console.error("Error starting game:", error);
+    } finally {
+      setIsStarting(false);
+    }
+  };
 
-  if (!pixels) return;
+  const handleLeave = () => {
+    setGameId(null);
+    setPlayerName(null);
+    setGame(null);
+    setIsHost(false);
+    setJoinError(null);
+  };
 
-  try {   // send raw pixel data to backend as JSON
-    const response = await fetch("http://localhost:8000/games/${gameId}/predict", { // updated url to include gameID, matching w/ backend expectation
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pixels, width: 128, height: 128 }),
-    });
-
-    const result = await response.json(); // receive result from backend
-
-    setPrediction(result.prediction); // update prediction 
-    setScore(result.score); // update score
-  } catch (error) {
-    console.error("Error connecting to backend:", error);
-  }
-};
-useEffect(() => { // ever 3 seconds, call submitDrawing to send current canvas to backend
-  const interval = setInterval(() => {
-    submitDrawing();
-  }, 3000);
-  return () => clearInterval(interval); // cleanup/stop timer
-}, []);
-  return (
-    <div className="flex h-screen flex-col overflow-hidden">
-      <Header
-        round={currentRound}
-        totalRounds={totalRounds}
-        word={wordToDraw}
-        timeRemaining={timeRemaining}
-        maxTime={MAX_TIME}
+  if (!gameId || !playerName || !game) {
+    return (
+      <LandingScreen
+        onCreate={handleCreate}
+        onJoin={handleJoin}
+        error={joinError}
+        isSubmitting={isSubmitting}
       />
+    );
+  }
 
-      <div className="flex flex-1 overflow-hidden">
-        <PlayersPanel players={players} />
+  if (game.status === "waiting") {
+    return (
+      <LobbyScreen
+        game={game}
+        playerName={playerName}
+        isHost={isHost}
+        onStart={handleStart}
+        isStarting={isStarting}
+      />
+    );
+  }
 
-        <main className="flex flex-1 flex-col gap-4 px-8 py-5">
-          <div className="min-h-0 flex-1">
-            <DrawingCanvas ref={canvasRef} tool={tool} color={color} brushSize={brushSize} />
-          </div>
-          <Toolbar
-            tool={tool}
-            onToolChange={setTool}
-            color={color}
-            onColorChange={setColor}
-            brushSize={brushSize}
-            onBrushSizeChange={setBrushSize}
-            onClear={() => canvasRef.current?.clear()}
-          />
-        </main>
+  if (game.status === "in_progress") {
+    return <GameScreen gameId={gameId} playerName={playerName} isHost={isHost} game={game} />;
+  }
 
-        <AIGuesserPanel // update confidence and bestGuess with results from backend
-        confidence={score ?? 0}
-        bestGuess={prediction || "Waiting..."}
-        rankings={guesserRankings}
-        />
-      </div>
-    </div>
-  );
+  if (game.status === "round_over") {
+    return <RoundResultsScreen game={game} isHost={isHost} onStartNext={handleStart} />;
+  }
+
+  return <ResultsScreen game={game} playerName={playerName} onLeave={handleLeave} />;
 }
 
 export default App;
-{/* npm run dev */}

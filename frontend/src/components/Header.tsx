@@ -14,7 +14,7 @@ export default function Header({ round, totalRounds, word, timeRemaining, maxTim
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2 text-2xl font-bold text-ink">
           <span>✏️</span>
-          <span>doodle.io</span>
+          <span>crAIyons</span>
         </div>
         <div className="flex items-center gap-1.5">
           {Array.from({ length: totalRounds }).map((_, i) => (

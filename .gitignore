@@ -1,5 +1,7 @@
 /.quickdrawcache/
-/__pycache__/
+**/__pycache__/
+*.pyc
+.env.local
 .env
 test_flow.py
 __pycache__

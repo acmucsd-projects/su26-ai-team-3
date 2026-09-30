@@ -13,12 +13,16 @@ from hf_inference import get_embedding
 
 # Categories directory containing word prompts for the game
 CATEGORIES_DIR = Path(__file__).resolve().parent.parent / "data" / "categories"
+# Categories whose data exists but should not be served as prompts
+EXCLUDED_CATEGORIES = {"sports"}
 
 def load_prompts_by_category() -> dict[str, list[str]]:
     categories: dict[str, list[str]] = {}
     if CATEGORIES_DIR.exists():
         for category_file in CATEGORIES_DIR.glob("*.txt"):
             category_name = category_file.stem
+            if category_name in EXCLUDED_CATEGORIES:
+                continue
             text = category_file.read_text(encoding="utf-8")
             words = [w.strip() for w in text.replace("\n", ",").split(",") if w.strip()]
             if words:
@@ -29,10 +33,9 @@ PROMPTS_BY_CATEGORY = load_prompts_by_category()
 
 app = FastAPI()                                         # create backend
 
-app.add_middleware(                                     # allow backend to connect to frontend on port 5173
+app.add_middleware(                                     # allow the frontend to connect, incl. over LAN for local multiplayer demos
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_credentials=True,
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -42,6 +45,7 @@ class Drawing(BaseModel):
     pixels: list[list[float]]
     width: int = 128
     height: int = 128
+    round: int
 
 
 games: dict[str, dict] = {}                             # in-memory game store, keyed by game_id
@@ -71,6 +75,8 @@ async def create_game(body: CreateGame):
         "category": None,
         "prompt": None,
         "max_similarity": None, # scoring cap
+        "last_round": None, # results of the most recently ended round, shown between rounds
+        "used_prompts": [], # prompts already played this game, so rounds don't repeat
         "players": {
             body.host_name: {"score": None, "total_score": 0 ,"submitted": False} # updated to match schema.json
         }
@@ -131,11 +137,24 @@ async def start_game(game_id: str):
         # @Dylan: Pick random category from data/categories/*.txt, then pick random prompt from that category
         if not PROMPTS_BY_CATEGORY:
             raise HTTPException(status_code=500, detail="No prompt categories found")
-        category = random.choice(list(PROMPTS_BY_CATEGORY.keys()))
-        prompt = random.choice(PROMPTS_BY_CATEGORY[category])
+        used = set(games[game_id]["used_prompts"])
+        available = {
+            category: [w for w in words if w not in used]
+            for category, words in PROMPTS_BY_CATEGORY.items()
+        }
+        available = {category: words for category, words in available.items() if words}
+        if not available:  # every prompt has been played; allow repeats rather than fail
+            games[game_id]["used_prompts"] = []
+            available = PROMPTS_BY_CATEGORY
+        category = random.choice(list(available.keys()))
+        prompt = random.choice(available[category])
+        games[game_id]["used_prompts"].append(prompt)
         return category, prompt
 
     game = games[game_id]
+
+    if game["status"] not in ("waiting", "round_over"):
+        raise HTTPException(status_code=409, detail=f"Cannot start a round while game is '{game['status']}'")
 
     # TODO: @ Tammy
     # Check if max rounds reached
@@ -151,6 +170,7 @@ async def start_game(game_id: str):
     # Reset players submitted to False
     for player in game["players"]:
         game["players"][player]["submitted"] = False
+        game["players"][player]["score"] = None  # drop any late submission from the previous round
     # Set category and prompt to random prompt
     category, prompt = pick_random_prompt()
     game["category"] = category
@@ -169,11 +189,17 @@ async def predict(game_id: str, drawings: list[Drawing]):        # take in raw p
     game = games[game_id]
 
     if game["status"] != "in_progress":
-        raise HTTPException(status_code=400, detail="Game is not in progress")
+        raise HTTPException(status_code=409, detail="Game is not in progress")
+
+    results = []
 
     for drawing in drawings:
         if drawing.player_name not in game["players"]:
             raise HTTPException(status_code=404, detail=f"Player '{drawing.player_name}' not in game")
+
+        # A slow client's drawing must never be scored against a later round's prompt/model
+        if drawing.round != game["round"]:
+            raise HTTPException(status_code=409, detail=f"Drawing is for round {drawing.round}, current round is {game['round']}")
 
         image = np.array(drawing.pixels, dtype=np.float32)  # shape (height, width), values 0.0-1.0, ready for inference
 
@@ -190,12 +216,27 @@ async def predict(game_id: str, drawings: list[Drawing]):        # take in raw p
             raise HTTPException(status_code=500, detail=f"No centroid found for prompt '{game['prompt']}'")
 
         similarity = scores_by_label[game["prompt"]]
-        normalized_score = min(similarity / game["max_similarity"], 1.0) # normalize score based on random max
+        # Normalize against the round's random cap, then rescale into [0.5, 1.0] so displayed scores never look brutal
+        capped = max(0.0, min(similarity / game["max_similarity"], 1.0))
+        normalized_score = 0.5 + 0.5 * capped
         game["players"][drawing.player_name]["score"] = normalized_score  # update with normalized similarity score
+        game["players"][drawing.player_name]["submitted"] = True
+
+        best_label, best_confidence = max(scores, key=lambda pair: pair[1])  # top guess across the whole category, for live AI-guesser feedback
+        rankings = [{"label": label, "confidence": confidence} for label, confidence in sorted(scores, key=lambda pair: -pair[1])]
+
+        results.append({
+            "player_name": drawing.player_name,
+            "score": normalized_score,
+            "prediction": best_label,
+            "confidence": best_confidence,
+            "rankings": rankings,
+        })
 
     # send back prediction to frontend
     return {
-        "message": f"Predictions made for game {game_id}"
+        "message": f"Predictions made for game {game_id}",
+        "results": results,
     }
 
 
@@ -209,6 +250,14 @@ async def end_round(game_id: str, max_rounds: int = 5):
     # TODO: @ Tammy
     # Check if max round reached
     game = games[game_id]
+
+    if game["status"] != "in_progress":
+        raise HTTPException(status_code=409, detail=f"Cannot end a round while game is '{game['status']}'")
+
+    # Snapshot per-player similarities before they are cleared, for the between-round screen
+    round_scores = {player: game["players"][player]["score"] for player in game["players"]}
+    round_prompt = game["prompt"]
+    round_category = game["category"]
 
     rankscore = []
     for player in game["players"]:
@@ -239,9 +288,16 @@ async def end_round(game_id: str, max_rounds: int = 5):
             game["players"][player]["total_score"] = game["players"][player]["total_score"] + 0.5
                     
 
-    if game["round"] >= game["max_rounds"]:
-        game["status"] = "finished" # end game if max rounds reached
-    # Post New Score to Players
+    game["last_round"] = {
+        "round": game["round"],
+        "prompt": round_prompt,
+        "category": round_category,
+        "scores": round_scores,
+        "winner": rankscore[0]["player"] if rankscore else None,
+    }
+
+    # Pause on the results screen between rounds; the host calls /start to continue
+    game["status"] = "finished" if game["round"] >= game["max_rounds"] else "round_over"
 
     return {"message": f"Round ended for game {game_id}", "scores": {
         player: game["players"][player]["total_score"]

@@ -5,8 +5,22 @@ from pathlib import Path
 
 # Navigate and load correct centroid files
 CENTROID_DIR = (Path(__file__).resolve().parent.parent / "data" / "centroids")
+CATEGORIES_DIR = (Path(__file__).resolve().parent.parent / "data" / "categories")
+
+
+def _category_words(category: str) -> list[str]:
+    words_path = CATEGORIES_DIR / f"{category}.txt"
+    text = words_path.read_text(encoding="utf-8")
+    return [w.strip() for w in text.replace("\n", ",").split(",") if w.strip()]
+
 
 # Return correct centroids as np array
+# Each category's npz was generated with a different layout, so normalize all
+# of them here rather than assuming one schema:
+#   - {"centroid": (N, dim), "categories": (N,)}
+#   - {"centroids": (N, dim) | (N, k, dim), "categories": (N,)}
+#   - {"centroids": (N*k, dim)} with no explicit labels (grouped by word order)
+#   - one array per word, keyed by the word itself: {word: (k, dim), ...}
 def load_centroids(category):
 
     centroid_path = CENTROID_DIR / f"{category}_1.npz"
@@ -17,8 +31,24 @@ def load_centroids(category):
         )
 
     with np.load(centroid_path) as data:
-        labels = [str(label) for label in data["categories"]]
-        centroids = np.asarray(data["centroid"], dtype=np.float32)
+        keys = data.files
+
+        if "categories" in keys:
+            labels = [str(label) for label in data["categories"]]
+            raw = np.asarray(data["centroid" if "centroid" in keys else "centroids"], dtype=np.float32)
+            centroids = raw.mean(axis=1) if raw.ndim == 3 else raw
+
+        elif "centroids" in keys:
+            labels = _category_words(category)
+            raw = np.asarray(data["centroids"], dtype=np.float32)
+            centroids = raw.reshape(len(labels), -1, raw.shape[-1]).mean(axis=1)
+
+        else:
+            labels = list(keys)
+            centroids = np.array([
+                np.asarray(data[label], dtype=np.float32).reshape(-1, data[label].shape[-1]).mean(axis=0)
+                for label in labels
+            ])
 
     return labels, centroids
 
